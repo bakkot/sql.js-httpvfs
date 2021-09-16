@@ -27,6 +27,7 @@ export interface WorkerHttpvfs {
   db: Comlink.Remote<LazyHttpDatabase>;
   worker: Comlink.Remote<SqliteComlinkMod>;
   configs: SplitFileConfig[];
+  port: MessagePort;
 }
 export async function createDbWorker(
   configs: SplitFileConfig[],
@@ -41,8 +42,21 @@ export async function createDbWorker(
     configs
   )) as unknown) as Comlink.Remote<LazyHttpDatabase>;
 
+  // the worker may or may not be loaded at this point
+  // if it is, we can message it immediately
+  // if it is not, we'll receive its initializaton message once it is
+  let channel = new MessageChannel();
+  let port = channel.port1;
+  worker.postMessage("init-bound-hack", [channel.port2]);
+  worker.addEventListener("message", e => {
+    if (e.data === "init-bound-hack") {
+      e.stopImmediatePropagation();
+      worker.postMessage("init-bound-hack", [channel.port2]);
+    }
+  });
+
   worker.addEventListener("message", handleAsyncRequestFromWorkerThread);
-  return { db, worker: sqlite, configs };
+  return { db, worker: sqlite, configs, port };
 }
 
 async function handleAsyncRequestFromWorkerThread(ev: MessageEvent) {

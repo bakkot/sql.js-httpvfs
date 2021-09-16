@@ -9,6 +9,38 @@ import { SeriesVtab, sqlite3_module, SqljsEmscriptenModuleType } from "./vtab";
 
 wasmUrl;
 
+// hack to bound the number of requests
+let controllerPort: MessagePort | null = null;;
+self.addEventListener('message', e => {
+  if (e.data === 'init-bound-hack') {
+    e.stopImmediatePropagation();
+    controllerPort = e.ports[0] as MessagePort;
+    controllerPort.onmessage = e => {
+      if (e.data.type === 'set-bound') {
+        requestBound = e.data.bound as number;
+      } else if (e.data.type === 'reset-count') {
+        requestCount = 0;
+      }
+    };
+  }
+});
+self.postMessage('init-bound-hack');
+
+let realXHRSend = XMLHttpRequest.prototype.send;
+let requestCount = 0;
+let requestBound = Infinity;
+// @ts-ignore
+XMLHttpRequest.prototype.send = function() {
+  if (++requestCount > requestBound) {
+    controllerPort?.postMessage('too many requests');
+    throw new Error('too many requests');
+  }
+  console.log(`request ${requestCount} of maximum ${requestBound}`);
+  // @ts-ignore
+  return realXHRSend.apply(this, arguments);
+};
+
+
 // https://gist.github.com/frankier/4bbc85f65ad3311ca5134fbc744db711
 function initTransferHandlers(sql: typeof import("sql.js")) {
   Comlink.transferHandlers.set("WORKERSQLPROXIES", {
