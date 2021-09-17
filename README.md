@@ -36,3 +36,9 @@ worker.port.postMessage({ type: 'reset-count' });
 // This will throw if it causes the bound to be hit.
 let results = await worker.db.query(cmd);
 ```
+
+## Cachebusting
+
+This also modifies the config to have an optional `cacheBust` property, which will be appended as a query parameter to URLs. If you set it to a random value when you update the database you can avoid caching-related database corruption.
+
+If using a remote config (`from: 'jsonconfig'`), don't forget to cachebust that too.
