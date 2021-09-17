@@ -9,8 +9,9 @@ import { SeriesVtab, sqlite3_module, SqljsEmscriptenModuleType } from "./vtab";
 
 wasmUrl;
 
-// hack to bound the number of requests
 let controllerPort: MessagePort | null = null;;
+let requestCount = 0;
+let requestBound = Infinity;
 self.addEventListener('message', e => {
   if (e.data === 'init-bound-hack') {
     e.stopImmediatePropagation();
@@ -25,20 +26,6 @@ self.addEventListener('message', e => {
   }
 });
 self.postMessage('init-bound-hack');
-
-let realXHRSend = XMLHttpRequest.prototype.send;
-let requestCount = 0;
-let requestBound = Infinity;
-// @ts-ignore
-XMLHttpRequest.prototype.send = function() {
-  if (++requestCount > requestBound) {
-    controllerPort?.postMessage('too many requests');
-    throw new Error('too many requests');
-  }
-  console.log(`request ${requestCount} of maximum ${requestBound}`);
-  // @ts-ignore
-  return realXHRSend.apply(this, arguments);
-};
 
 
 // https://gist.github.com/frankier/4bbc85f65ad3311ca5134fbc744db711
@@ -170,6 +157,24 @@ const mod = {
       this.sqljs = init(wasmUrl);
     }
     const sql = await this.sqljs;
+
+    // hack to bound the number of requests
+    let realXHRSend = XMLHttpRequest.prototype.send;
+    // @ts-ignore
+    XMLHttpRequest.prototype.send = function() {
+      if (++requestCount > requestBound) {
+        controllerPort?.postMessage('too many requests');
+        // I couldn't figure out how to get ERRNO_CODES included
+        // so just hardcode the actual value
+        // https://github.com/emscripten-core/emscripten/blob/565fb3651ed185078df1a13b8edbcb6b2192f29e/system/include/wasi/api.h#L146
+        // https://github.com/emscripten-core/emscripten/blob/565fb3651ed185078df1a13b8edbcb6b2192f29e/system/lib/libc/musl/arch/emscripten/bits/errno.h#L13
+        throw sql.FS.ErrnoError(6 /* EAGAIN */);
+      }
+      console.log(`request ${requestCount} of maximum ${requestBound}`);
+      // @ts-ignore
+      return realXHRSend.apply(this, arguments);
+    };
+
     const lazyFiles = new Map();
     const hydratedConfigs = await fetchConfigs(configs);
     let mainFileConfig;
